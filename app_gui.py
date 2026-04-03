@@ -21,9 +21,11 @@ def _make_tray_image() -> Image.Image:
     draw = ImageDraw.Draw(img)
     # Dark background circle
     draw.ellipse([0, 0, 63, 63], fill=(30, 30, 30, 255))
-    # White T — horizontal bar + vertical stem
-    draw.rectangle([10, 14, 54, 26], fill=(255, 255, 255, 255))  # top bar
-    draw.rectangle([26, 26, 38, 52], fill=(255, 255, 255, 255))  # stem
+    # T top bar
+    draw.rectangle([10, 12, 54, 24], fill=(255, 255, 255, 255))
+    # Split stem = pause symbol (two bars)
+    draw.rectangle([20, 26, 30, 52], fill=(255, 255, 255, 255))
+    draw.rectangle([34, 26, 44, 52], fill=(255, 255, 255, 255))
     return img
 
 
