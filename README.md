@@ -4,7 +4,7 @@ Watches EFT log files for raid events (`GameStarted`, `GameStarting`, etc.) and 
 
 Read-only — only reads logs that EFT writes itself, does not touch the game.
 
-👉 **[Download latest release](../../releases/latest)**
+👉 **[Download latest release](../../releases/latest)** (~30KB)
 
 ## Run on Windows startup
 
