@@ -1,0 +1,221 @@
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace TarkovMusicPause
+{
+    internal sealed class MainForm : Form
+    {
+        private readonly TextBox _txtLogsFolder;
+        private readonly CheckBox _chkResume;
+        private readonly Button _btnStart;
+        private readonly Button _btnStop;
+        private readonly Label _lblStatus;
+        private readonly RichTextBox _rtbLog;
+        private readonly NotifyIcon _notifyIcon;
+
+        private CancellationTokenSource _cts;
+        private bool _reallyClosing;
+
+        private const int WM_SYSCOMMAND = 0x0112;
+        private const int SC_MINIMIZE = 0xF020;
+
+        public MainForm()
+        {
+            SuspendLayout();
+
+            Text = "Tarkov Music Pause";
+            MinimumSize = new Size(480, 360);
+            Size = new Size(640, 500);
+            Icon = MakeProgramIcon();
+
+            // Tray icon
+            _notifyIcon = new NotifyIcon
+            {
+                Text = "Tarkov Music Pause",
+                Icon = MakeProgramIcon(),
+                Visible = false,
+            };
+            var trayMenu = new ContextMenuStrip();
+            var miShow = new ToolStripMenuItem("Show");
+            miShow.Font = new Font(miShow.Font, FontStyle.Bold);
+            miShow.Click += delegate { ShowFromTray(); };
+            var miQuit = new ToolStripMenuItem("Quit");
+            miQuit.Click += delegate { QuitApp(); };
+            trayMenu.Items.Add(miShow);
+            trayMenu.Items.Add(miQuit);
+            _notifyIcon.ContextMenuStrip = trayMenu;
+            _notifyIcon.DoubleClick += delegate { ShowFromTray(); };
+
+            // Layout
+            var tbl = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10),
+                ColumnCount = 1,
+                RowCount = 7,
+                AutoSize = false,
+            };
+            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            tbl.Controls.Add(new Label { Text = "EFT Logs folder", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+
+            _txtLogsFolder = new TextBox
+            {
+                Text = Environment.GetEnvironmentVariable("TARKOV_LOGS") ?? LogWatcher.DefaultLogRoot,
+                Dock = DockStyle.Fill,
+            };
+            tbl.Controls.Add(_txtLogsFolder, 0, 1);
+
+            tbl.Controls.Add(new Label
+            {
+                Text = @"Use C:\Games\Logs (parent) or any log_* folder that contains application_*.log.",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8f),
+                ForeColor = SystemColors.GrayText,
+                Padding = new Padding(0, 2, 0, 0),
+            }, 0, 2);
+
+            _chkResume = new CheckBox
+            {
+                Text = "Resume after raid (media key)",
+                Checked = true,
+                AutoSize = true,
+                Padding = new Padding(0, 8, 0, 0),
+            };
+            tbl.Controls.Add(_chkResume, 0, 3);
+
+            var btnPanel = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Anchor = AnchorStyles.Left,
+                Padding = new Padding(0, 10, 0, 0),
+                Margin = new Padding(0),
+                WrapContents = false,
+            };
+            _btnStart = new Button { Text = "Start", Width = 90, Height = 26 };
+            _btnStart.Click += BtnStart_Click;
+            _btnStop = new Button { Text = "Stop", Width = 90, Height = 26, Enabled = false };
+            _btnStop.Click += delegate { _cts?.Cancel(); };
+            var btnTest = new Button { Text = "Test media key", Width = 120, Height = 26 };
+            btnTest.Click += BtnTest_Click;
+            var btnTray = new Button { Text = "Minimise to tray", Width = 120, Height = 26 };
+            btnTray.Click += delegate { MinimiseToTray(); };
+            btnPanel.Controls.Add(_btnStart);
+            btnPanel.Controls.Add(_btnStop);
+            btnPanel.Controls.Add(btnTest);
+            btnPanel.Controls.Add(btnTray);
+            tbl.Controls.Add(btnPanel, 0, 4);
+
+            _lblStatus = new Label { Text = "Idle", AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
+            tbl.Controls.Add(_lblStatus, 0, 5);
+
+            _rtbLog = new RichTextBox
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Consolas", 9f),
+                ReadOnly = true,
+                BackColor = Color.FromArgb(30, 30, 30),
+                ForeColor = Color.White,
+                ScrollBars = RichTextBoxScrollBars.Vertical,
+                Margin = new Padding(0, 8, 0, 0),
+                WordWrap = false,
+            };
+            tbl.Controls.Add(_rtbLog, 0, 6);
+
+            Controls.Add(tbl);
+            FormClosing += MainForm_FormClosing;
+            ResumeLayout(false);
+            PerformLayout();
+        }
+
+        private void MinimiseToTray() { Hide(); _notifyIcon.Visible = true; }
+        private void ShowFromTray() { _notifyIcon.Visible = false; Show(); WindowState = FormWindowState.Normal; Activate(); }
+        private void QuitApp() { _cts?.Cancel(); _notifyIcon.Visible = false; _reallyClosing = true; Close(); }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
+            { MinimiseToTray(); return; }
+            base.WndProc(ref m);
+        }
+
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (!_reallyClosing) { e.Cancel = true; MinimiseToTray(); }
+        }
+
+        private async void BtnStart_Click(object sender, EventArgs e)
+        {
+            var logsDir = _txtLogsFolder.Text.Trim();
+            if (!Directory.Exists(logsDir)) { AppendLog("Not a folder: " + logsDir); return; }
+            _cts = new CancellationTokenSource();
+            SetRunning(true);
+            var watcher = new LogWatcher(logsDir, _chkResume.Checked, false, AppendLog, MediaKey.PlayPause);
+            try { var token = _cts.Token; await Task.Run(() => watcher.Run(token)); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { AppendLog("Error: " + ex.Message); }
+            finally { SetRunning(false); }
+        }
+
+        private void BtnTest_Click(object sender, EventArgs e)
+        {
+            AppendLog("Test: sending media Play/Pause (should toggle your player).");
+            try { MediaKey.PlayPause(); AppendLog("Test: done."); }
+            catch (Exception ex) { AppendLog("Test failed: " + ex.Message); }
+        }
+
+        private void SetRunning(bool running)
+        {
+            if (InvokeRequired) { Invoke((Action)(() => SetRunning(running))); return; }
+            _lblStatus.Text = running ? "Running" : "Idle";
+            _btnStart.Enabled = !running;
+            _btnStop.Enabled = running;
+        }
+
+        internal void AppendLog(string message)
+        {
+            if (InvokeRequired) { Invoke((Action)(() => AppendLog(message))); return; }
+            _rtbLog.AppendText(message + "\n");
+            _rtbLog.ScrollToCaret();
+        }
+
+        private static Icon MakeProgramIcon()
+        {
+            const int size = 64;
+            using (var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (var bg = new SolidBrush(Color.FromArgb(255, 20, 20, 20)))
+                    g.FillEllipse(bg, 0, 0, size - 1, size - 1);
+                using (var white = new SolidBrush(Color.White))
+                {
+                    g.FillPolygon(white, new[] { new PointF(10, 16), new PointF(10, 48), new PointF(30, 32) });
+                    g.FillRectangle(white, 34, 16, 10, 32);
+                    g.FillRectangle(white, 47, 16, 10, 32);
+                }
+                return Icon.FromHandle(bmp.GetHicon());
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { _notifyIcon.Dispose(); _cts?.Dispose(); }
+            base.Dispose(disposing);
+        }
+    }
+}
