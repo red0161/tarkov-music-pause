@@ -5,13 +5,17 @@ from PIL import Image, ImageDraw
 def make_image(size: int) -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    draw.ellipse([0, 0, size - 1, size - 1], fill=(30, 30, 30, 255))
+    draw.ellipse([0, 0, size - 1, size - 1], fill=(20, 20, 20, 255))
     s = size / 64
-    # T top bar
-    draw.rectangle([round(10*s), round(12*s), round(54*s), round(24*s)], fill=(255, 255, 255, 255))
-    # Split stem = pause symbol (two bars)
-    draw.rectangle([round(20*s), round(26*s), round(30*s), round(52*s)], fill=(255, 255, 255, 255))
-    draw.rectangle([round(34*s), round(26*s), round(44*s), round(52*s)], fill=(255, 255, 255, 255))
+    # Play triangle
+    draw.polygon([
+        (round(10*s), round(16*s)),
+        (round(10*s), round(48*s)),
+        (round(30*s), round(32*s)),
+    ], fill=(255, 255, 255, 255))
+    # Pause bars
+    draw.rectangle([round(34*s), round(16*s), round(43*s), round(48*s)], fill=(255, 255, 255, 255))
+    draw.rectangle([round(47*s), round(16*s), round(56*s), round(48*s)], fill=(255, 255, 255, 255))
     return img
 
 
