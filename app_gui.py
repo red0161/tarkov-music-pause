@@ -10,7 +10,20 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, scrolledtext
 
+import pystray
+from PIL import Image, ImageDraw
+
 import pause_on_raid as core
+
+
+def _make_tray_image() -> Image.Image:
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    # Dark background circle
+    draw.ellipse([0, 0, 63, 63], fill=(30, 30, 30, 255))
+    # Green play triangle
+    draw.polygon([(20, 16), (20, 48), (50, 32)], fill=(34, 197, 94, 255))
+    return img
 
 
 def main() -> None:
@@ -22,6 +35,40 @@ def main() -> None:
     var_resume = tk.BooleanVar(value=True)
     stop_event = threading.Event()
     worker: list[threading.Thread | None] = [None]
+    tray_icon: list[pystray.Icon | None] = [None]
+
+    # --- tray helpers ---
+
+    def _show_window() -> None:
+        root.after(0, lambda: (root.deiconify(), root.lift(), root.focus_force()))
+
+    def _quit_app() -> None:
+        stop_event.set()
+        if tray_icon[0] is not None:
+            tray_icon[0].stop()
+        root.after(0, root.destroy)
+
+    def _start_tray() -> None:
+        if tray_icon[0] is not None:
+            return
+        menu = pystray.Menu(
+            pystray.MenuItem("Show", lambda: _show_window(), default=True),
+            pystray.MenuItem("Quit", lambda: _quit_app()),
+        )
+        icon = pystray.Icon("TarkovMusicPause", _make_tray_image(), "Tarkov Music Pause", menu)
+        tray_icon[0] = icon
+        threading.Thread(target=icon.run, daemon=True).start()
+
+    def _stop_tray() -> None:
+        if tray_icon[0] is not None:
+            tray_icon[0].stop()
+            tray_icon[0] = None
+
+    def minimize_to_tray() -> None:
+        root.withdraw()
+        _start_tray()
+
+    # --- log / state helpers ---
 
     def append_log(msg: str) -> None:
         def _do() -> None:
@@ -37,6 +84,8 @@ def main() -> None:
             btn_stop.config(state=tk.NORMAL if running else tk.DISABLED)
 
         root.after(0, _do)
+
+    # --- watcher thread ---
 
     def run_watcher() -> None:
         def send_media_main_thread() -> None:
@@ -74,9 +123,14 @@ def main() -> None:
     def stop_clicked() -> None:
         stop_event.set()
 
+    def on_minimize(event: tk.Event) -> None:  # type: ignore[type-arg]
+        if root.state() == "iconic":
+            minimize_to_tray()
+
     def on_close() -> None:
-        stop_event.set()
-        root.destroy()
+        minimize_to_tray()
+
+    # --- layout ---
 
     frm = ttk.Frame(root, padding=10)
     frm.pack(fill=tk.BOTH, expand=True)
@@ -108,7 +162,8 @@ def main() -> None:
     btn_stop = ttk.Button(btn_row, text="Stop", command=stop_clicked, width=12, state=tk.DISABLED)
     btn_start.pack(side=tk.LEFT, padx=(0, 8))
     btn_stop.pack(side=tk.LEFT, padx=(0, 8))
-    ttk.Button(btn_row, text="Test media key", command=test_media, width=16).pack(side=tk.LEFT)
+    ttk.Button(btn_row, text="Test media key", command=test_media, width=16).pack(side=tk.LEFT, padx=(0, 8))
+    ttk.Button(btn_row, text="Minimise to tray", command=minimize_to_tray, width=16).pack(side=tk.LEFT)
 
     state = tk.StringVar(value="Idle")
     ttk.Label(frm, textvariable=state).grid(row=5, column=0, sticky=tk.W, pady=(8, 0))
@@ -118,8 +173,12 @@ def main() -> None:
     frm.rowconfigure(6, weight=1)
     frm.columnconfigure(0, weight=1)
 
+    root.bind("<Unmap>", on_minimize)
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
+
+    # mainloop exited (destroy called) — ensure tray is gone
+    _stop_tray()
 
 
 if __name__ == "__main__":
