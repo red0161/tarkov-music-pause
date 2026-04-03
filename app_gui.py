@@ -21,8 +21,9 @@ def _make_tray_image() -> Image.Image:
     draw = ImageDraw.Draw(img)
     # Dark background circle
     draw.ellipse([0, 0, 63, 63], fill=(30, 30, 30, 255))
-    # Green play triangle
-    draw.polygon([(20, 16), (20, 48), (50, 32)], fill=(34, 197, 94, 255))
+    # White T — horizontal bar + vertical stem
+    draw.rectangle([10, 14, 54, 26], fill=(255, 255, 255, 255))  # top bar
+    draw.rectangle([26, 26, 38, 52], fill=(255, 255, 255, 255))  # stem
     return img
 
 
