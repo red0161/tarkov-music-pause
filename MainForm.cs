@@ -10,27 +10,41 @@ namespace TarkovMusicPause
 {
     internal sealed class MainForm : Form
     {
-        private readonly TextBox _txtLogsFolder;
         private readonly CheckBox _chkResume;
+        private readonly CheckBox _chkAutoStart;
         private readonly Button _btnStart;
         private readonly Button _btnStop;
+        private readonly Label _lblLogsPath;
         private readonly Label _lblStatus;
         private readonly RichTextBox _rtbLog;
         private readonly NotifyIcon _notifyIcon;
 
+        private string _logsDir;
         private CancellationTokenSource _cts;
         private bool _reallyClosing;
 
         private const int WM_SYSCOMMAND = 0x0112;
         private const int SC_MINIMIZE = 0xF020;
 
+        private static readonly string ConfigDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "TarkovMusicPause");
+        private static readonly string ConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "TarkovMusicPause", "logpath.txt");
+        private static readonly string AutoStartPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "TarkovMusicPause", "autostart.txt");
+
         public MainForm()
         {
+            _logsDir = LoadSavedPath();
+
             SuspendLayout();
 
             Text = "Tarkov Music Pause";
-            MinimumSize = new Size(480, 360);
-            Size = new Size(640, 500);
+            MinimumSize = new Size(440, 320);
+            Size = new Size(580, 440);
             Icon = MakeProgramIcon();
 
             // Tray icon
@@ -57,7 +71,7 @@ namespace TarkovMusicPause
                 Dock = DockStyle.Fill,
                 Padding = new Padding(10),
                 ColumnCount = 1,
-                RowCount = 7,
+                RowCount = 5,
                 AutoSize = false,
             };
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -65,37 +79,37 @@ namespace TarkovMusicPause
             tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
-            tbl.Controls.Add(new Label { Text = "EFT Logs folder", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
-
-            _txtLogsFolder = new TextBox
+            // Row 0 - current path display
+            _lblLogsPath = new Label
             {
-                Text = Environment.GetEnvironmentVariable("TARKOV_LOGS") ?? LogWatcher.DefaultLogRoot,
-                Dock = DockStyle.Fill,
-            };
-            tbl.Controls.Add(_txtLogsFolder, 0, 1);
-
-            tbl.Controls.Add(new Label
-            {
-                Text = @"Use C:\Games\Logs (parent) or any log_* folder that contains application_*.log.",
+                Text = "Logs: " + _logsDir,
                 AutoSize = true,
-                Font = new Font("Segoe UI", 8f),
                 ForeColor = SystemColors.GrayText,
-                Padding = new Padding(0, 2, 0, 0),
-            }, 0, 2);
-
-            _chkResume = new CheckBox
-            {
-                Text = "Resume after raid (media key)",
-                Checked = true,
-                AutoSize = true,
-                Padding = new Padding(0, 8, 0, 0),
+                Font = new Font("Segoe UI", 8f),
+                Padding = new Padding(0, 0, 0, 0),
             };
-            tbl.Controls.Add(_chkResume, 0, 3);
+            tbl.Controls.Add(_lblLogsPath, 0, 0);
 
+            // Row 1 - checkboxes
+            var chkPanel = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Anchor = AnchorStyles.Left,
+                Padding = new Padding(0, 6, 0, 0),
+                Margin = new Padding(0),
+                WrapContents = false,
+            };
+            _chkResume = new CheckBox { Text = "Resume after raid", Checked = true, AutoSize = true, Margin = new Padding(0, 0, 16, 0) };
+            _chkAutoStart = new CheckBox { Text = "Auto-start on launch", Checked = LoadAutoStart(), AutoSize = true };
+            _chkAutoStart.CheckedChanged += delegate { SaveAutoStart(_chkAutoStart.Checked); };
+            chkPanel.Controls.Add(_chkResume);
+            chkPanel.Controls.Add(_chkAutoStart);
+            tbl.Controls.Add(chkPanel, 0, 1);
+
+            // Row 2 - buttons
             var btnPanel = new FlowLayoutPanel
             {
                 AutoSize = true,
@@ -109,19 +123,24 @@ namespace TarkovMusicPause
             _btnStart.Click += BtnStart_Click;
             _btnStop = new Button { Text = "Stop", Width = 90, Height = 26, Enabled = false };
             _btnStop.Click += delegate { _cts?.Cancel(); };
-            var btnTest = new Button { Text = "Test media key", Width = 120, Height = 26 };
+            var btnTest = new Button { Text = "Test media key", Width = 110, Height = 26 };
             btnTest.Click += BtnTest_Click;
+            var btnSetPath = new Button { Text = "Set path", Width = 80, Height = 26 };
+            btnSetPath.Click += BtnSetPath_Click;
             var btnTray = new Button { Text = "Minimise to tray", Width = 120, Height = 26 };
             btnTray.Click += delegate { MinimiseToTray(); };
             btnPanel.Controls.Add(_btnStart);
             btnPanel.Controls.Add(_btnStop);
             btnPanel.Controls.Add(btnTest);
+            btnPanel.Controls.Add(btnSetPath);
             btnPanel.Controls.Add(btnTray);
-            tbl.Controls.Add(btnPanel, 0, 4);
+            tbl.Controls.Add(btnPanel, 0, 2);
 
+            // Row 3 - status
             _lblStatus = new Label { Text = "Idle", AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
-            tbl.Controls.Add(_lblStatus, 0, 5);
+            tbl.Controls.Add(_lblStatus, 0, 3);
 
+            // Row 4 - log
             _rtbLog = new RichTextBox
             {
                 Dock = DockStyle.Fill,
@@ -133,12 +152,61 @@ namespace TarkovMusicPause
                 Margin = new Padding(0, 8, 0, 0),
                 WordWrap = false,
             };
-            tbl.Controls.Add(_rtbLog, 0, 6);
+            tbl.Controls.Add(_rtbLog, 0, 4);
 
             Controls.Add(tbl);
             FormClosing += MainForm_FormClosing;
+            Load += async (s, e) => { if (_chkAutoStart.Checked) { MinimiseToTray(); await StartWatcher(); } };
             ResumeLayout(false);
             PerformLayout();
+        }
+
+        private void BtnSetPath_Click(object sender, EventArgs e)
+        {
+            using (var dlg = new FolderBrowserDialog())
+            {
+                dlg.Description = "Select your EFT Logs folder (e.g. C:\\Games\\Logs)";
+                dlg.SelectedPath = _logsDir;
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    _logsDir = dlg.SelectedPath;
+                    _lblLogsPath.Text = "Logs: " + _logsDir;
+                    SavePath(_logsDir);
+                }
+            }
+        }
+
+        private static string LoadSavedPath()
+        {
+            try
+            {
+                if (File.Exists(ConfigPath))
+                {
+                    var saved = File.ReadAllText(ConfigPath).Trim();
+                    if (saved.Length > 0) return saved;
+                }
+            }
+            catch { }
+            return LogWatcher.DefaultLogRoot;
+        }
+
+        private static void SavePath(string path)
+        {
+            try { Directory.CreateDirectory(ConfigDir); File.WriteAllText(ConfigPath, path); }
+            catch { }
+        }
+
+        private static bool LoadAutoStart()
+        {
+            try { if (File.Exists(AutoStartPath)) return File.ReadAllText(AutoStartPath).Trim() == "1"; }
+            catch { }
+            return false;
+        }
+
+        private static void SaveAutoStart(bool value)
+        {
+            try { Directory.CreateDirectory(ConfigDir); File.WriteAllText(AutoStartPath, value ? "1" : "0"); }
+            catch { }
         }
 
         private void MinimiseToTray() { Hide(); _notifyIcon.Visible = true; }
@@ -157,17 +225,18 @@ namespace TarkovMusicPause
             if (!_reallyClosing) { e.Cancel = true; MinimiseToTray(); }
         }
 
-        private async void BtnStart_Click(object sender, EventArgs e)
+        private async void BtnStart_Click(object sender, EventArgs e) { await StartWatcher(); }
+
+        private async Task StartWatcher()
         {
-            var logsDir = _txtLogsFolder.Text.Trim();
-            if (!Directory.Exists(logsDir)) { AppendLog("Not a folder: " + logsDir); return; }
+            if (_cts != null) return;
             _cts = new CancellationTokenSource();
             SetRunning(true);
-            var watcher = new LogWatcher(logsDir, _chkResume.Checked, false, AppendLog, MediaKey.PlayPause);
+            var watcher = new LogWatcher(_logsDir, _chkResume.Checked, false, AppendLog, MediaKey.PlayPause);
             try { var token = _cts.Token; await Task.Run(() => watcher.Run(token)); }
             catch (OperationCanceledException) { }
             catch (Exception ex) { AppendLog("Error: " + ex.Message); }
-            finally { SetRunning(false); }
+            finally { _cts = null; SetRunning(false); }
         }
 
         private void BtnTest_Click(object sender, EventArgs e)
