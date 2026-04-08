@@ -12,6 +12,7 @@ namespace TarkovMusicPause
     {
         private readonly CheckBox _chkResume;
         private readonly CheckBox _chkAutoStart;
+        private readonly CheckBox _chkStartMinimised;
         private readonly Button _btnStart;
         private readonly Button _btnStop;
         private readonly Label _lblLogsPath;
@@ -35,6 +36,9 @@ namespace TarkovMusicPause
         private static readonly string AutoStartPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "TarkovMusicPause", "autostart.txt");
+        private static readonly string StartMinimisedPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "TarkovMusicPause", "startminimised.txt");
 
         public MainForm()
         {
@@ -103,10 +107,13 @@ namespace TarkovMusicPause
                 WrapContents = false,
             };
             _chkResume = new CheckBox { Text = "Resume after raid", Checked = true, AutoSize = true, Margin = new Padding(0, 0, 16, 0) };
-            _chkAutoStart = new CheckBox { Text = "Auto-start on launch", Checked = LoadAutoStart(), AutoSize = true };
+            _chkAutoStart = new CheckBox { Text = "Auto-start on launch", Checked = LoadAutoStart(), AutoSize = true, Margin = new Padding(0, 0, 16, 0) };
             _chkAutoStart.CheckedChanged += delegate { SaveAutoStart(_chkAutoStart.Checked); };
+            _chkStartMinimised = new CheckBox { Text = "Start minimised", Checked = LoadStartMinimised(), AutoSize = true };
+            _chkStartMinimised.CheckedChanged += delegate { SaveStartMinimised(_chkStartMinimised.Checked); };
             chkPanel.Controls.Add(_chkResume);
             chkPanel.Controls.Add(_chkAutoStart);
+            chkPanel.Controls.Add(_chkStartMinimised);
             tbl.Controls.Add(chkPanel, 0, 1);
 
             // Row 2 - buttons
@@ -156,7 +163,11 @@ namespace TarkovMusicPause
 
             Controls.Add(tbl);
             FormClosing += MainForm_FormClosing;
-            Load += async (s, e) => { if (_chkAutoStart.Checked) { MinimiseToTray(); await StartWatcher(); } };
+            Load += async (s, e) =>
+            {
+                if (_chkStartMinimised.Checked || _chkAutoStart.Checked) MinimiseToTray();
+                if (_chkAutoStart.Checked) await StartWatcher();
+            };
             ResumeLayout(false);
             PerformLayout();
         }
@@ -209,6 +220,19 @@ namespace TarkovMusicPause
             catch { }
         }
 
+        private static bool LoadStartMinimised()
+        {
+            try { if (File.Exists(StartMinimisedPath)) return File.ReadAllText(StartMinimisedPath).Trim() == "1"; }
+            catch { }
+            return false;
+        }
+
+        private static void SaveStartMinimised(bool value)
+        {
+            try { Directory.CreateDirectory(ConfigDir); File.WriteAllText(StartMinimisedPath, value ? "1" : "0"); }
+            catch { }
+        }
+
         private void MinimiseToTray() { Hide(); _notifyIcon.Visible = true; }
         private void ShowFromTray() { _notifyIcon.Visible = false; Show(); WindowState = FormWindowState.Normal; Activate(); }
         private void QuitApp() { _cts?.Cancel(); _notifyIcon.Visible = false; _reallyClosing = true; Close(); }
@@ -232,7 +256,7 @@ namespace TarkovMusicPause
             if (_cts != null) return;
             _cts = new CancellationTokenSource();
             SetRunning(true);
-            var watcher = new LogWatcher(_logsDir, _chkResume.Checked, false, AppendLog, MediaKey.PlayPause);
+            var watcher = new LogWatcher(_logsDir, _chkResume.Checked, false, AppendLog, MediaKey.Pause, MediaKey.Play);
             try { var token = _cts.Token; await Task.Run(() => watcher.Run(token)); }
             catch (OperationCanceledException) { }
             catch (Exception ex) { AppendLog("Error: " + ex.Message); }

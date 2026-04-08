@@ -29,15 +29,17 @@ namespace TarkovMusicPause
         private readonly bool _resumeAfterRaid;
         private readonly bool _dryRun;
         private readonly Action<string> _emit;
-        private readonly Action _sendMedia;
+        private readonly Action _sendPauseMedia;
+        private readonly Action _sendResumeMedia;
 
-        public LogWatcher(string logRoot, bool resumeAfterRaid, bool dryRun, Action<string> emit, Action sendMedia)
+        public LogWatcher(string logRoot, bool resumeAfterRaid, bool dryRun, Action<string> emit, Action sendPauseMedia, Action sendResumeMedia)
         {
             _logRoot = logRoot;
             _resumeAfterRaid = resumeAfterRaid;
             _dryRun = dryRun;
             _emit = emit;
-            _sendMedia = sendMedia;
+            _sendPauseMedia = sendPauseMedia;
+            _sendResumeMedia = sendResumeMedia;
         }
 
         public void Run(CancellationToken ct)
@@ -165,8 +167,8 @@ namespace TarkovMusicPause
             {
                 if (inRaidAudioPaused) return;
                 inRaidAudioPaused = true;
-                _emit("Raid live -> pause (media key): " + (line.Length > 80 ? line.Substring(0, 80) + "..." : line));
-                if (!_dryRun) _sendMedia();
+                _emit("Raid live -> pause: " + (line.Length > 80 ? line.Substring(0, 80) + "..." : line));
+                if (!_dryRun) _sendPauseMedia();
                 return;
             }
             if (!_resumeAfterRaid || !inRaidAudioPaused) return;
@@ -176,8 +178,8 @@ namespace TarkovMusicPause
             else if (SelectProfileRe.IsMatch(line) || BackendProfileSelectRe.IsMatch(line)) label = "Back to menu";
             if (label == null) return;
             inRaidAudioPaused = false;
-            _emit(label + " -> resume (media key): " + (line.Length > 80 ? line.Substring(0, 80) + "..." : line));
-            if (!_dryRun) _sendMedia();
+            _emit(label + " -> resume (media play key): " + (line.Length > 80 ? line.Substring(0, 80) + "..." : line));
+            if (!_dryRun) _sendResumeMedia();
         }
 
         private static Tuple<string, string[]> LatestSessionWatchFiles(string logRoot)

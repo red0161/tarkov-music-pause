@@ -6,6 +6,8 @@ namespace TarkovMusicPause
     internal static class MediaKey
     {
         private const int INPUT_KEYBOARD = 1;
+        private const uint VK_MEDIA_NEXT_TRACK = 0xB0;
+        private const uint VK_MEDIA_PREV_TRACK = 0xB1;
         private const uint VK_MEDIA_PLAY_PAUSE = 0xB3;
         private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
         private const uint KEYEVENTF_KEYUP = 0x0002;
@@ -53,14 +55,18 @@ namespace TarkovMusicPause
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
-        public static void PlayPause()
+        private static void SendVirtualKey(uint virtualKey)
         {
             var inputs = new INPUT[2];
             inputs[0].type = INPUT_KEYBOARD;
-            inputs[0].u.ki = new KEYBDINPUT { wVk = (ushort)VK_MEDIA_PLAY_PAUSE, dwFlags = KEYEVENTF_EXTENDEDKEY };
+            inputs[0].u.ki = new KEYBDINPUT { wVk = (ushort)virtualKey, dwFlags = KEYEVENTF_EXTENDEDKEY };
             inputs[1].type = INPUT_KEYBOARD;
-            inputs[1].u.ki = new KEYBDINPUT { wVk = (ushort)VK_MEDIA_PLAY_PAUSE, dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP };
+            inputs[1].u.ki = new KEYBDINPUT { wVk = (ushort)virtualKey, dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP };
             SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
         }
+
+        public static void PlayPause() { SendVirtualKey(VK_MEDIA_PLAY_PAUSE); }
+        public static void Pause() { SendVirtualKey(VK_MEDIA_PLAY_PAUSE); }
+        public static void Play() { SendVirtualKey(VK_MEDIA_PLAY_PAUSE); }
     }
 }
